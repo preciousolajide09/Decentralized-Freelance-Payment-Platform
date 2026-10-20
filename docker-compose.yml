@@ -106,5 +106,62 @@ services:
       # Container listens on 8080 (unprivileged nginx); host side stays 5173.
       - "5173:8080"
 
+  # Automated database backup service.
+  #
+  # Runs pg_dump on a schedule (default: every 24 hours) and writes compressed
+  # SQL archives to the `postgres_backups` named volume. Each dump is timestamped
+  # so the volume retains a rolling history; the BACKUP_RETAIN_DAYS variable
+  # controls how many days of archives are kept (default: 7).
+  #
+  # Backups are written to /backups inside the container; mount a host path or
+  # a separate cloud volume in production to persist them outside the host.
+  #
+  # To trigger a manual backup:
+  #   docker compose exec db-backup /usr/local/bin/backup.sh
+  db-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: freelance_stellar
+      # Interval between backups in seconds (default: 86400 = 24 hours).
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # Number of days of backup archives to retain before pruning.
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-7}
+    volumes:
+      - postgres_backups:/backups
+    # The entrypoint writes a timestamped, gzip-compressed dump on first run and
+    # then sleeps for BACKUP_INTERVAL_SECONDS before repeating.
+    entrypoint: >
+      /bin/sh -c '
+        BACKUP_SCRIPT=/usr/local/bin/backup.sh
+        cat > $$BACKUP_SCRIPT <<'"'"'EOF'"'"'
+      #!/bin/sh
+      set -e
+      TIMESTAMP=$$(date +%Y%m%dT%H%M%S)
+      DEST=/backups/freelance_stellar_$${TIMESTAMP}.sql.gz
+      echo "[backup] Starting dump -> $$DEST"
+      pg_dump --no-password -Fc | gzip > "$$DEST"
+      echo "[backup] Dump complete: $$(du -sh $$DEST | cut -f1)"
+      find /backups -name "*.sql.gz" -mtime +$${BACKUP_RETAIN_DAYS} -delete
+      echo "[backup] Pruned archives older than $${BACKUP_RETAIN_DAYS} days"
+      EOF
+        chmod +x $$BACKUP_SCRIPT
+        while true; do
+          $$BACKUP_SCRIPT || echo "[backup] ERROR: dump failed, will retry next interval"
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+        done
+      '
+
 volumes:
   postgres_data:
+  # Named volume for automated pg_dump archives produced by the db-backup service.
+  # In production, replace this with a bind-mount to a cloud-backed path or a
+  # managed volume so backups survive host replacement.
+  postgres_backups:

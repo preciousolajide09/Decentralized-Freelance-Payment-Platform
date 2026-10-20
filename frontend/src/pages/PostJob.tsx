@@ -36,6 +36,15 @@ import {
   type MilestoneTemplate,
 } from "../lib/templates";
 
+/** Key used to persist a pending escrow result across page reloads. */
+const PENDING_ESCROW_KEY = "postjob_pending_escrow";
+
+interface PendingEscrow {
+  id: string;
+  escrowId: number;
+  hash: string;
+}
+
 interface MilestoneRow {
   amount: string;
 }
@@ -71,6 +80,15 @@ export default function PostJob() {
   const [rows, setRows] = useState<MilestoneRow[]>([{ amount: "" }]);
   const [created, setCreated] = useState<CreateAndFundResult | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [pendingEscrow, setPendingEscrow] = useState<PendingEscrow | null>(() => {
+    try {
+      const raw = localStorage.getItem(PENDING_ESCROW_KEY);
+      return raw ? (JSON.parse(raw) as PendingEscrow) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isRetrying, setIsRetrying] = useState(false);
   const [templates, setTemplates] = useState<MilestoneTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [templateName, setTemplateName] = useState("");
@@ -154,6 +172,64 @@ export default function PostJob() {
     setTemplateNote("Template deleted.");
   }
 
+  /**
+   * Links the off-chain job record to an already-funded on-chain escrow.
+   * Called both from handleSubmit (first attempt) and the retry button.
+   */
+  async function linkOffChain(
+    result: CreateAndFundResult,
+    formData: {
+      title: string;
+      description: string;
+      expirySeconds: number;
+      milestones: Array<{ description: string; amount: string; deadline: string }>;
+    },
+  ) {
+    setRecordError(null);
+    try {
+      const token = await authenticate(publicKey!, signMessage);
+      const expiresAt = new Date(formData.expirySeconds * 1000).toISOString();
+      const job = await createJob(
+        {
+          title: formData.title,
+          description: formData.description,
+          asset: asset.symbol,
+          tags: selectedTags,
+          expiresAt,
+          milestones: formData.milestones,
+        },
+        token,
+      );
+      await linkEscrowId(job.id, Number(result.id), token);
+      // Success — remove the recovery entry so the retry banner disappears.
+      localStorage.removeItem(PENDING_ESCROW_KEY);
+      setPendingEscrow(null);
+    } catch (e) {
+      setRecordError(
+        e instanceof Error ? e.message : "Could not save the job record",
+      );
+    }
+  }
+
+  /** Retry linking an already-funded escrow whose off-chain record was not saved. */
+  async function handleRetryLink() {
+    if (!pendingEscrow || !publicKey) return;
+    setIsRetrying(true);
+    try {
+      const token = await authenticate(publicKey, signMessage);
+      await linkEscrowId(pendingEscrow.id, pendingEscrow.escrowId, token);
+      localStorage.removeItem(PENDING_ESCROW_KEY);
+      setPendingEscrow(null);
+      setRecordError(null);
+    } catch (e) {
+      setRecordError(
+        e instanceof Error ? e.message : "Retry failed — please try again",
+      );
+    } finally {
+      setIsRetrying(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!publicKey) {
@@ -177,36 +253,32 @@ export default function PostJob() {
     if (!result) return;
     setCreated(result);
 
+    // Persist the escrow result to localStorage immediately so the user can
+    // recover if the off-chain step fails and the page is closed or refreshed.
+    const pending: PendingEscrow = {
+      id: result.id.toString(),
+      escrowId: Number(result.id),
+      hash: result.hash,
+    };
+    localStorage.setItem(PENDING_ESCROW_KEY, JSON.stringify(pending));
+
     // 2. Off-chain: store the job record (and its asset) and link the escrow.
-    try {
-      const token = await authenticate(publicKey, signMessage);
-      const expiresAt = new Date(expirySeconds * 1000).toISOString();
-      const job = await createJob(
-        {
-          title: title.trim(),
-          description: description.trim(),
-          asset: asset.symbol,
-          tags: selectedTags,
-          expiresAt,
-          milestones: rows.map((r, i) => ({
-            description: `Milestone ${i + 1}`,
-            // Send the exact decimal string, not a float round-trip: the API
-            // sums base units and stores this as the canonical amount.
-            amount: formatAmount(
-              amountToBaseUnits(r.amount, asset.decimals),
-              asset.decimals,
-            ),
-            deadline: expiresAt,
-          })),
-        },
-        token,
-      );
-      await linkEscrowId(job.id, Number(result.id), token);
-    } catch (e) {
-      setRecordError(
-        e instanceof Error ? e.message : "Could not save the job record",
-      );
-    }
+    const expiresAt = new Date(expirySeconds * 1000).toISOString();
+    await linkOffChain(result, {
+      title: title.trim(),
+      description: description.trim(),
+      expirySeconds,
+      milestones: rows.map((r, i) => ({
+        description: `Milestone ${i + 1}`,
+        // Send the exact decimal string, not a float round-trip: the API
+        // sums base units and stores this as the canonical amount.
+        amount: formatAmount(
+          amountToBaseUnits(r.amount, asset.decimals),
+          asset.decimals,
+        ),
+        deadline: expiresAt,
+      })),
+    });
   }
 
   return (
@@ -488,7 +560,66 @@ export default function PostJob() {
       {recordError && (
         <p role="alert" aria-live="assertive" className="alert alert-error">
           On-chain escrow created, but the job record was not saved: {recordError}
+          {pendingEscrow && publicKey && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleRetryLink}
+                disabled={isRetrying}
+                aria-busy={isRetrying}
+              >
+                {isRetrying ? "Retrying…" : "Retry Linking"}
+              </button>{" "}
+              <span className="muted">
+                (escrow #{pendingEscrow.escrowId}, tx{" "}
+                <a
+                  href={explorerTxUrl(pendingEscrow.hash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={pendingEscrow.hash}
+                >
+                  <code>{pendingEscrow.hash.slice(0, 12)}…</code>
+                </a>
+                )
+              </span>
+            </>
+          )}
         </p>
+      )}
+
+      {/* Recovery banner shown on page reload when a previous funding succeeded
+          but the off-chain linking step was not completed. */}
+      {pendingEscrow && !recordError && !created && (
+        <div role="alert" aria-live="polite" className="alert alert-error">
+          <strong>Unlinked escrow detected.</strong> A previous funding transaction
+          (escrow #{pendingEscrow.escrowId},{" "}
+          <a
+            href={explorerTxUrl(pendingEscrow.hash)}
+            target="_blank"
+            rel="noreferrer"
+            title={pendingEscrow.hash}
+          >
+            <code>{pendingEscrow.hash.slice(0, 12)}…</code>
+          </a>
+          ) was not linked to a job record. Connect your wallet and click{" "}
+          <strong>Retry Linking</strong> to recover.
+          {publicKey && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleRetryLink}
+                disabled={isRetrying}
+                aria-busy={isRetrying}
+              >
+                {isRetrying ? "Retrying…" : "Retry Linking"}
+              </button>
+            </>
+          )}
+        </div>
       )}
     </Layout>
   );

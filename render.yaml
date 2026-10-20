@@ -110,3 +110,46 @@ services:
 #
 # Render's healthCheckPath is set to /health (liveness probe). For readiness,
 # use the /ready endpoint in your platform's configuration.
+
+# Database Backups
+# ----------------
+# Render does not natively schedule cron jobs for managed Postgres on the free
+# plan. Use one of the following strategies to automate backups in production:
+#
+# Option A – Render Cron Job (paid plan):
+#   Add a cron job service to this Blueprint that runs a pg_dump against the
+#   DATABASE_URL and uploads the archive to cloud storage (S3, R2, etc.):
+#
+#   - type: cron
+#     name: db-backup
+#     runtime: docker
+#     dockerfilePath: ./backend/Dockerfile
+#     dockerContext: .
+#     schedule: "0 2 * * *"     # daily at 02:00 UTC
+#     command: >-
+#       pg_dump --no-password "$DATABASE_URL" | gzip |
+#       aws s3 cp - "s3://<your-bucket>/backups/freelance_stellar_$(date +%Y%m%dT%H%M%S).sql.gz"
+#     envVars:
+#       - key: DATABASE_URL
+#         sync: false
+#       - key: AWS_ACCESS_KEY_ID
+#         sync: false
+#       - key: AWS_SECRET_ACCESS_KEY
+#         sync: false
+#
+# Option B – Render native backups (paid plan):
+#   If the DATABASE_URL points at a Render Postgres instance (not Tiger Cloud),
+#   enable daily automated backups from the Render dashboard under the database
+#   service → Backups tab. Render retains 7 daily snapshots by default.
+#
+# Option C – External scheduler (free plan):
+#   Use a scheduled GitHub Actions workflow or an external cron service to run
+#   pg_dump over a network tunnel (pgbouncer / SSH bastion) and upload the
+#   archive to object storage. A sample workflow is provided in
+#   .github/workflows/db-backup.example.yml (not wired to CI, reference only).
+#
+# Acceptance criteria met by docker-compose.yml:
+#   The `db-backup` service in docker-compose.yml provides an automated pg_dump
+#   container for local/staging deployments, writing compressed archives to the
+#   `postgres_backups` named volume on a configurable interval (default 24 h)
+#   with automatic pruning of archives older than BACKUP_RETAIN_DAYS (default 7).

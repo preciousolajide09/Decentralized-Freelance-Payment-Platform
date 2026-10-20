@@ -108,7 +108,13 @@ export const createProposalSchema = z.object({
 
 export const createDeliverableSchema = z.object({
   fileName: z.string().min(1).max(255),
-  fileUrl: z.string().url(),
+  fileUrl: z
+    .string()
+    .url("fileUrl must be a valid URL")
+    .refine(
+      (url) => url.startsWith("https://") || url.startsWith("http://"),
+      "fileUrl must use the http or https scheme",
+    ),
   fileSize: z.number().int().positive().optional(),
   fileType: z.string().max(100).optional(),
   description: z.string().max(1000).optional(),

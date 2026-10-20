@@ -65,6 +65,22 @@ jobs:
       - name: Build wasm
         run: stellar contract build
 
+      # Soroban enforces a 64 KB (65 536 byte) compressed contract limit.
+      # Fail fast here rather than discovering the overage at mainnet deploy.
+      - name: Check wasm binary sizes (≤ 64 KB compressed)
+        run: |
+          MAX_BYTES=65536
+          FAILED=0
+          for wasm in target/wasm32v1-none/release/*.wasm; do
+            SIZE=$(gzip -c "$wasm" | wc -c)
+            echo "$wasm: ${SIZE} bytes compressed"
+            if [ "$SIZE" -gt "$MAX_BYTES" ]; then
+              echo "ERROR: $wasm exceeds the Soroban 64 KB compressed limit (${SIZE} > ${MAX_BYTES})"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -ne 0 ]; then exit 1; fi
+
   frontend:
     name: Frontend – lint, typecheck, build
     runs-on: ubuntu-latest
