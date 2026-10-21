@@ -38,6 +38,10 @@ of the state tables keeps a transaction hash.
 > milestone's total. A consumer must accumulate the amounts for a milestone (and
 > compare them against the milestone's amount) to tell a partial release from a
 > complete one; the indexer stores that running total in `Milestone.releasedAmount`.
+>
+> `escrow.resolve` emits only `resolved`, and it sets every milestone's on-chain
+> `released_amount` to its full `amount`; the indexer writes the same full amount
+> to each milestone when it handles that event.
 | `DisputeOpened` | `dispute_opened` | `escrow_id: u64` | `initiator: Address` |
 | `Resolved` | `resolved` | `escrow_id: u64` | `client_share: i128`, `freelancer_share: i128` |
 | `Refunded` | `refunded` | `escrow_id: u64` | `client: Address`, `amount: i128` |

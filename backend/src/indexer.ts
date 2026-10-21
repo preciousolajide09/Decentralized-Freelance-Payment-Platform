@@ -890,8 +890,20 @@ export async function handleDisputeOpened(
  * milestone-derived view (progress, unreleased amount, earnings) is wrong for
  * the one case where the database is furthest from the chain.
  *
- * `releasedAt` is the same instant for the job, the dispute and the milestones,
- * because the contract changes them all in a single transaction.
+ * The contract sets each milestone's `released_amount` to its full `amount`
+ * before it distributes the shares (`escrow/src/lib.rs` → `resolve`), so the
+ * mirror has to write `releasedAmount` too. Flipping only `status`/`releasedAt`
+ * left it at its `0` default: a resolved job was COMPLETED with milestones that
+ * were RELEASED but appeared to have paid out nothing, so every aggregate built
+ * on `releasedAmount` (earnings, payment history, audit totals) under-counted
+ * those escrows. `handleMilestoneReleased` already stamps the full total, and a
+ * resolution is the same terminal release for every milestone.
+ *
+ * The milestones are updated one row at a time because `releasedAmount` is the
+ * row's own `amount` (converted through the asset's decimals), which an
+ * `updateMany` cannot express. `releasedAt` is the same instant for the job, the
+ * dispute and the milestones, because the contract changes them all in a single
+ * transaction.
  */
 async function handleResolved(
   escrowId: bigint | null,
@@ -905,10 +917,29 @@ async function handleResolved(
     where: { job: { escrowId } },
     data: { status: "RESOLVED", resolvedAt },
   });
-  await store.milestone.updateMany({
-    where: { job: { escrowId } },
-    data: { status: "RELEASED", releasedAt: resolvedAt },
+
+  const job = await store.job.findUnique({
+    where: { escrowId },
+    include: { milestones: true },
   });
+  if (job) {
+    const decimals = ASSETS[job.asset.toUpperCase()]?.decimals ?? 7;
+    for (const milestone of job.milestones) {
+      // The chain stores base units; the column is a decimal in the asset's
+      // human units. Reuse the same exact conversion as the release handler so
+      // both paths write `releasedAmount` in one format.
+      const amount = toBaseUnits(String(milestone.amount), decimals);
+      await store.milestone.update({
+        where: { id: milestone.id },
+        data: {
+          status: "RELEASED",
+          releasedAt: resolvedAt,
+          releasedAmount: formatAmount(amount, decimals),
+        },
+      });
+    }
+  }
+
   await notifyParticipants(
     escrowId,
     "RESOLVED",

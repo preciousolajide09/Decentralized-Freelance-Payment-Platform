@@ -1148,12 +1148,46 @@ describe("dispatchEvent", () => {
     expect(jobs[0].status).toBe("COMPLETED");
     expect(jobs[0].disputes[0]).toMatchObject({ status: "RESOLVED" });
     expect(jobs[0].milestones.map((m) => m.status)).toEqual(["RELEASED", "RELEASED"]);
+    // `escrow.resolve` sets every on-chain milestone's released_amount to its
+    // full amount; the mirror has to do the same, or a resolved escrow's
+    // milestones look RELEASED while having paid out nothing (issue #168).
+    expect(jobs[0].milestones.map((m) => m.releasedAmount)).toEqual(["0.5", "0.5"]);
     // One transaction on-chain, so one instant off-chain.
     expect(jobs[0].milestones.map((m) => m.releasedAt)).toEqual([
       jobs[0].disputes[0].resolvedAt,
       jobs[0].disputes[0].resolvedAt,
     ]);
     expect(jobs[0].disputes[0].resolvedAt).toBeInstanceOf(Date);
+  });
+
+  it("overwrites a part-released milestone's amount when the dispute resolves", async () => {
+    // A milestone can be paid down before the dispute freezes the escrow. The
+    // resolution is terminal and the contract marks it fully released, so the
+    // mirror must replace the running total with the milestone's full amount
+    // rather than leave the partial value behind.
+    const jobs = [
+      fakeJob({
+        status: "DISPUTED",
+        milestones: [
+          {
+            id: "m0",
+            index: 0,
+            status: "PENDING",
+            releasedAt: null,
+            amount: "10",
+            releasedAmount: "4",
+            isStale: false,
+          },
+        ],
+      }),
+    ];
+
+    await dispatchEvent(makeTopicEvent("resolved", 7n), makeStore(jobs));
+
+    expect(jobs[0].milestones[0]).toMatchObject({
+      status: "RELEASED",
+      releasedAmount: "10",
+    });
   });
 
   it("treats dispute_resolved like resolved", async () => {
@@ -1163,6 +1197,7 @@ describe("dispatchEvent", () => {
 
     expect(jobs[0].status).toBe("COMPLETED");
     expect(jobs[0].milestones[0].status).toBe("RELEASED");
+    expect(jobs[0].milestones[0].releasedAmount).toBe("0.5");
   });
 
   it("refunds the job, leaving the milestones untouched", async () => {

@@ -223,7 +223,7 @@ and data map), and applies it to PostgreSQL:
 | `milestone_released` | accumulates `Milestone.releasedAmount`; flips to `RELEASED` and completes the job only when every milestone is fully paid |
 | `dispute_opened` | job → `DISPUTED`; no `Dispute` row yet |
 | `raised` | creates/updates the `Dispute` row with its on-chain id |
-| `resolved` / `dispute_resolved` | job → `COMPLETED`, dispute → `RESOLVED`, milestones released |
+| `resolved` / `dispute_resolved` | job → `COMPLETED`, dispute → `RESOLVED`, every milestone released in full (`releasedAmount` = its `amount`, matching `escrow.resolve`) |
 | `refunded` | job → `REFUNDED`; closes any open dispute as `REFUNDED` |
 | `rated` | upserts the rating and the ratee's aggregate |
 | `approved` | recorded; no state change |
