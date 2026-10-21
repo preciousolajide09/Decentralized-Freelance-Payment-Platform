@@ -2,6 +2,7 @@
  * users.ts
  *
  * POST /api/users/auth            — issue JWT after verifying a signed Stellar challenge
+ * POST /api/users/logout          — revoke current session (auth required)
  * GET  /api/users/:addr           — get public profile
  * GET  /api/users/:addr/transactions — on-chain history for the user's escrows
  * GET  /api/users/:addr/reminders — milestones that are due soon or overdue
@@ -16,6 +17,9 @@
  *
  * Nonces are stored in the database (single-use, 60s TTL) so they survive
  * restarts and work across instances.
+ *
+ * Sessions are tracked in UserSession for token revocation (issue #172). Logout
+ * increments the token version, invalidating all tokens with a lower version.
  */
 
 import { Router, type Request, type Response, type NextFunction } from "express";
@@ -82,7 +86,17 @@ usersRouter.post("/auth", validate(authSchema), async (req, res, next) => {
       update: {},
     });
 
-    const token = await new SignJWT({ sub: address })
+    // Create a new session for token revocation tracking (issue #172)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const session = await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        tokenVersion: 0,
+        expiresAt,
+      },
+    });
+
+    const token = await new SignJWT({ sub: address, v: session.tokenVersion })
       .setProtectedHeader({ alg: "HS256" })
       .setExpirationTime("7d")
       .sign(secret);
@@ -385,6 +399,29 @@ usersRouter.put("/me", requireAuth, validate(updateSchema), async (req, res, nex
       },
     });
     res.json(user);
+  } catch (err) {
+    next(err);
+  }
+});
+// POST /api/users/logout — revoke current session (issue #172)
+//
+// Increments the token version for the user, invalidating all tokens with a
+// lower version. The caller must discard their token after this call.
+usersRouter.post("/logout", requireAuth, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { stellarAddress: res.locals.stellarAddress },
+      select: { id: true },
+    });
+    if (!user) throw new AppError(404, "User not found");
+
+    // Increment token version for all sessions, invalidating previous tokens
+    await prisma.userSession.updateMany({
+      where: { userId: user.id },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    res.json({ message: "Logged out successfully" });
   } catch (err) {
     next(err);
   }

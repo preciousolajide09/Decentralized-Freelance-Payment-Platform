@@ -33,6 +33,7 @@ model User {
   savedJobs        SavedJob[]
   notifications    Notification[] @relation("UserNotifications")
   messagesSent     Message[]  @relation("MessagesSent")
+  sessions         UserSession[] @relation("UserSessions")
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +329,23 @@ model AuthNonce {
   nonce     String
   expiresAt DateTime
 
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// UserSession — active JWT sessions for token revocation (issue #172)
+// ---------------------------------------------------------------------------
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("UserSessions", fields: [userId], references: [id], onDelete: Cascade)
+  /// Token version: incremented on logout to invalidate all tokens with lower versions
+  tokenVersion Int      @default(0)
+  /// Session expires at this time (JWT expiry); after this, the row can be cleaned up
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
   @@index([expiresAt])
 }
 
