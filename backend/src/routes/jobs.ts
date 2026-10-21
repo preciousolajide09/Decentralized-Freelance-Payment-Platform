@@ -1,16 +1,17 @@
 /**
  * jobs.ts
  *
- * GET  /api/jobs          — list jobs (filterable by status, client, freelancer, tag)
- * POST /api/jobs          — create a job (off-chain record; escrow funded separately)
- * GET  /api/jobs/tags     — the curated skill-tag list
- * GET  /api/jobs/saved    — the caller's bookmarked jobs
- * POST /api/jobs/:id/save   — bookmark a job
- * DELETE /api/jobs/:id/save — remove a bookmark
- * GET  /api/jobs/:id      — get single job with milestones
- * PUT  /api/jobs/:id/assign — client assigns a freelancer
+ * GET  /api/jobs                   — list jobs (filterable by status, client, freelancer, tag)
+ * GET  /api/jobs/tags              — the curated skill-tag list
+ * GET  /api/jobs/by-escrow/:escrowId — lookup job by on-chain escrow ID (issue #173)
+ * GET  /api/jobs/saved             — the caller's bookmarked jobs
+ * POST /api/jobs/:id/save          — bookmark a job
+ * DELETE /api/jobs/:id/save        — remove a bookmark
+ * POST /api/jobs                   — create a job (off-chain record; escrow funded separately)
+ * GET  /api/jobs/:id               — get single job with milestones
+ * PUT  /api/jobs/:id/assign        — client assigns a freelancer
  *
- * Route order matters: the literal paths (`/tags`, `/saved`) are registered
+ * Route order matters: the literal paths (`/tags`, `/by-escrow`, `/saved`) are registered
  * before `/:id`, or they would be read as job ids.
  */
 
@@ -111,6 +112,35 @@ jobsRouter.get("/", async (req, res, next) => {
 // and the filter without duplicating the list (issue #70).
 jobsRouter.get("/tags", (_req, res) => {
   res.json(SKILL_TAGS);
+});
+
+// GET /api/jobs/by-escrow/:escrowId — direct lookup by on-chain escrow ID.
+//
+// Frontend pages route by the on-chain escrowId, while most backend API routes
+// require the off-chain job.id. This endpoint eliminates expensive multi-page
+// scans when searching for a job by its escrow (issue #173).
+jobsRouter.get("/by-escrow/:escrowId", async (req, res, next) => {
+  try {
+    const escrowIdStr = req.params.escrowId;
+    
+    // Parse the escrow ID as a BigInt. Allow both string and number formats.
+    let escrowId: bigint;
+    try {
+      escrowId = BigInt(escrowIdStr);
+    } catch {
+      throw new AppError(400, "Invalid escrow ID format");
+    }
+
+    const job = await prisma.job.findUnique({
+      where: { escrowId },
+      include: { milestones: true, client: true, freelancer: true },
+    });
+    
+    if (!job) throw new AppError(404, "Job not found");
+    res.json(job);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/jobs/saved — the caller's bookmarks, most recently saved first.
