@@ -24,6 +24,14 @@ export interface ReceiptMilestone {
   status: string;
   deadline: Date | null;
   releasedAt: Date | null;
+  /** Amount released so far for partial releases (issue #171). */
+  releasedAmount: unknown;
+}
+
+/** A dispute as the receipt needs it. */
+export interface ReceiptDispute {
+  freelancerShare: unknown | null;
+  clientShare: unknown | null;
 }
 
 /** The off-chain job behind an escrow, as the receipt needs it. */
@@ -39,6 +47,7 @@ export interface ReceiptJob {
   client: { stellarAddress: string; displayName: string | null } | null;
   freelancer: { stellarAddress: string; displayName: string | null } | null;
   milestones: ReceiptMilestone[];
+  disputes?: ReceiptDispute[] | null;
 }
 
 /** An indexed contract event, as the receipt needs it (amount in base units). */
@@ -108,6 +117,15 @@ function normalizeAmount(amount: unknown, decimals: number): string {
  * Build the receipt for one escrow from its off-chain job and its indexed
  * events. Events are returned oldest-first, which is the order a receipt reads
  * in.
+ *
+ * Released amount calculation (issue #171):
+ * - If a milestone has `releasedAmount` set, use that (tracks partial releases)
+ * - Otherwise, if status is `RELEASED`, use the full `amount`
+ * - Otherwise, use 0
+ *
+ * Dispute resolution: If the job completed via dispute with a resolved share,
+ * the freelancer received their portion and the client was refunded the rest.
+ * The receipt reflects the amounts actually paid out, accounting for this split.
  */
 export function buildEscrowReceipt(
   escrowId: bigint | number | string,
@@ -117,12 +135,27 @@ export function buildEscrowReceipt(
 ): EscrowReceipt {
   const decimals = decimalsFor(job.asset);
 
-  const releasedBase = sumAmounts(
-    job.milestones
-      .filter((milestone) => milestone.status === "RELEASED")
-      .map((milestone) => String(milestone.amount)),
-    decimals,
-  );
+  // Calculate released amount accounting for partial releases and dispute resolution
+  let releasedBase = 0n;
+  for (const milestone of job.milestones) {
+    // Use releasedAmount if available, otherwise check status for full release
+    const releasedAmountStr = milestone.releasedAmount
+      ? String(milestone.releasedAmount)
+      : milestone.status === "RELEASED"
+        ? String(milestone.amount)
+        : "0";
+    releasedBase += toBaseUnits(releasedAmountStr, decimals);
+  }
+
+  // If dispute was resolved with a split, the freelancer received their share
+  // and the client was refunded. Adjust the released amount to reflect what
+  // the freelancer actually received (freelancerShare of the released amount).
+  const dispute = job.disputes?.[0];
+  if (dispute && dispute.freelancerShare !== null && dispute.freelancerShare !== undefined) {
+    const freelancerShare = toBaseUnits(String(dispute.freelancerShare), decimals);
+    releasedBase = (releasedBase * freelancerShare) / toBaseUnits("100", decimals);
+  }
+
   const totalBase = toBaseUnits(String(job.totalAmount), decimals);
   const outstandingBase = totalBase > releasedBase ? totalBase - releasedBase : 0n;
 

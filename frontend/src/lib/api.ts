@@ -105,6 +105,8 @@ export interface JobMilestoneApi {
   status: string;
   deadline?: string | null;
   releasedAt?: string | null;
+  /** Amount released so far for partial releases (issue #175). */
+  releasedAmount?: string | number;
   /** Deliverable files a freelancer attached (issue #65). */
   deliverables?: DeliverableApi[];
 }
