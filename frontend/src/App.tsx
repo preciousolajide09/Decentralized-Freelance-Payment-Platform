@@ -16,6 +16,7 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import { WalletProvider } from "./hooks/WalletProvider";
 import { useWallet } from "./hooks/wallet-context";
+import { ACTIVE_NETWORK } from "./lib/stellar";
 import AddressField from "./components/AddressField";
 import NotificationsBell from "./components/NotificationsBell";
 import Logo from "./components/Logo";
@@ -55,6 +56,30 @@ function Nav() {
   );
 }
 
+function NetworkMismatchBanner() {
+  const { publicKey, networkMismatch } = useWallet();
+
+  if (!publicKey || !networkMismatch) return null;
+
+  const networkName = ACTIVE_NETWORK === "testnet" ? "Testnet" : "Mainnet";
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="alert alert-error"
+      style={{
+        margin: 0,
+        borderRadius: 0,
+        padding: "0.8rem 1rem",
+        textAlign: "center",
+      }}
+    >
+      Freighter is connected to a different network. Please switch to {networkName} in your wallet.
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <WalletProvider>
@@ -63,6 +88,7 @@ export default function App() {
           Skip to main content
         </a>
         <Nav />
+        <NetworkMismatchBanner />
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/freelancers" element={<FreelancerDirectory />} />

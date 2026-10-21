@@ -24,6 +24,8 @@ export interface FreighterApi {
     message: string,
     opts?: { address?: string },
   ): Promise<{ signature: string } | string>;
+  /** Get the network details from Freighter */
+  getNetwork?(): Promise<{ network: string; networkPassphrase: string }>;
 }
 
 declare global {
@@ -42,6 +44,7 @@ export interface WalletContextValue {
   publicKey: string | null;
   connecting: boolean;
   error: string | null;
+  networkMismatch: boolean;
   connect: () => Promise<string | null>;
   disconnect: () => void;
   sign: (xdr: string) => Promise<string>;
