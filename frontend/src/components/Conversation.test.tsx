@@ -47,6 +47,8 @@ function message(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  // jsdom does not implement scrolling; the auto-scroll effect calls this.
+  Element.prototype.scrollIntoView = vi.fn();
   h.wallet.publicKey = ME;
   h.authenticate.mockClear();
   h.fetchMessages.mockReset();

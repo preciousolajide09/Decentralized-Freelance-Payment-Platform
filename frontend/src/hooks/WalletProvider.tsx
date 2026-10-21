@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo, useState, useEffect, type ReactNode } from "react";
-import { networkPassphrase, ACTIVE_NETWORK } from "../lib/stellar";
+import { networkPassphrase } from "../lib/stellar";
 import { WalletContext, freighter } from "./wallet-context";
 import { clearAuthToken } from "../lib/api";
 
@@ -28,7 +28,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } else {
         setNetworkMismatch(false);
       }
-    } catch (e) {
+    } catch {
       // If we can't get the network, assume there's no mismatch
       setNetworkMismatch(false);
     }

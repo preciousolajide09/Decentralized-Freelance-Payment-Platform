@@ -60,6 +60,8 @@ async function renderWithEnv(env: Record<string, string>): Promise<void> {
 }
 
 beforeEach(() => {
+  // The page persists its draft in localStorage; each test must start blank.
+  localStorage.clear();
   h.wallet.publicKey = "GCLIENT";
   h.escrow.isPending.mockReturnValue(false);
   h.escrow.error = null;
@@ -67,6 +69,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.unstubAllEnvs();
 });
 
