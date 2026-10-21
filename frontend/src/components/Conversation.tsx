@@ -15,7 +15,7 @@
  *   rule, so the check is a courtesy, not the boundary.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   authenticate,
   fetchMessages,
@@ -27,6 +27,7 @@ import { shortAddress } from "../lib/address";
 import { useWallet } from "../hooks/wallet-context";
 
 const MAX_BODY = 2000;
+const POLL_INTERVAL_MS = 5000; // Poll for new messages every 5 seconds
 
 export default function Conversation({ jobId }: { jobId: string }) {
   const { publicKey, connect, signMessage } = useWallet();
@@ -37,6 +38,7 @@ export default function Conversation({ jobId }: { jobId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!publicKey) return;
@@ -60,6 +62,24 @@ export default function Conversation({ jobId }: { jobId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Auto-scroll to the latest message
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
+  // Poll for new messages every 5 seconds
+  useEffect(() => {
+    if (!publicKey) return;
+
+    const pollInterval = setInterval(() => {
+      void load();
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(pollInterval);
+  }, [publicKey, load]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -129,6 +149,7 @@ export default function Conversation({ jobId }: { jobId: string }) {
                   </li>
                 );
               })}
+              <div ref={messagesEndRef} />
             </ol>
           )}
 
