@@ -79,6 +79,14 @@ beforeEach(() => {
   h.user.upsert.mockReset();
   h.deliverable.create.mockReset();
   h.deliverable.findMany.mockReset();
+  // `requireAuth` loads the caller's current session before the handler runs.
+  h.user.findUnique.mockImplementation(({ where }: { where: { stellarAddress: string } }) =>
+    Promise.resolve({
+      id: `user_${where.stellarAddress}`,
+      stellarAddress: where.stellarAddress,
+      sessions: [],
+    }),
+  );
 });
 
 describe("Milestone Deliverables API (Issue #65)", () => {
@@ -176,7 +184,7 @@ describe("Milestone Deliverables API (Issue #65)", () => {
         id: "deliv_1",
         milestoneId: "m_1",
         fileName: "design_spec.pdf",
-        fileUrl: "data:application/pdf;base64,JVBERi0xL...",
+        fileUrl: "https://example.com/design_spec.pdf",
         fileSize: 10240,
         fileType: "application/pdf",
         description: "Complete design spec for milestone 1",
@@ -191,7 +199,7 @@ describe("Milestone Deliverables API (Issue #65)", () => {
         },
         body: JSON.stringify({
           fileName: "design_spec.pdf",
-          fileUrl: "data:application/pdf;base64,JVBERi0xL...",
+          fileUrl: "https://example.com/design_spec.pdf",
           fileSize: 10240,
           fileType: "application/pdf",
           description: "Complete design spec for milestone 1",

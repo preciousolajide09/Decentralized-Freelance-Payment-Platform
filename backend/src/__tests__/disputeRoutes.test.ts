@@ -54,9 +54,12 @@ const h = vi.hoisted(() => ({
   job: {
     findUnique: vi.fn(),
   },
+  user: {
+    findUnique: vi.fn(),
+  },
 }));
 
-vi.mock("../db", () => ({ prisma: { dispute: h.dispute, job: h.job } }));
+vi.mock("../db", () => ({ prisma: { dispute: h.dispute, job: h.job, user: h.user } }));
 
 // `getAsset` is wrapped rather than replaced so the registry stays real for
 // every test; one test overrides it with a non-7-decimal asset, which the
@@ -135,9 +138,19 @@ beforeEach(() => {
     h.dispute.findUnique,
     h.dispute.findFirst,
     h.job.findUnique,
+    h.user.findUnique,
   ]) {
     fn.mockReset();
   }
+  // `requireAuth` loads the caller's current session before the request handler.
+  h.user.findUnique.mockImplementation(
+    ({ where, select }: { where: { stellarAddress: string }; select?: { sessions?: unknown } }) =>
+      Promise.resolve(
+        select?.sessions
+          ? { id: `auth_${where.stellarAddress}`, sessions: [] }
+          : { id: `user_${where.stellarAddress}`, stellarAddress: where.stellarAddress },
+      ),
+  );
 });
 
 /** A bearer token the `requireAuth` middleware accepts for `address`. */

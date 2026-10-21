@@ -29,9 +29,12 @@ const h = vi.hoisted(() => ({
   job: {
     findUnique: vi.fn(),
   },
+  user: {
+    findUnique: vi.fn(),
+  },
 }));
 
-vi.mock("../db", () => ({ prisma: { message: h.message, job: h.job } }));
+vi.mock("../db", () => ({ prisma: { message: h.message, job: h.job, user: h.user } }));
 
 let baseUrl: string;
 let server: Server;
@@ -68,9 +71,12 @@ beforeEach(() => {
     h.message.updateMany,
     h.message.groupBy,
     h.job.findUnique,
+    h.user.findUnique,
   ]) {
     fn.mockReset();
   }
+  // `requireAuth` loads the caller's current session on every authenticated call.
+  h.user.findUnique.mockResolvedValue({ id: "auth_user", sessions: [] });
 });
 
 async function tokenFor(address: string): Promise<string> {

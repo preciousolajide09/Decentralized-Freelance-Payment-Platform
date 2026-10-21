@@ -83,6 +83,16 @@ describe("PUT /api/jobs/:id/assign", () => {
     db.job.findUnique.mockReset();
     db.job.update.mockReset();
     db.user.findUnique.mockReset();
+    // `requireAuth` loads the caller's current session before the handler runs.
+    // A route-level freelancer lookup (no session select) still defaults to null.
+    db.user.findUnique.mockImplementation(
+      ({ where, select }: { where: { stellarAddress: string }; select?: { sessions?: unknown } }) =>
+        Promise.resolve(
+          select?.sessions
+            ? { id: `auth_${where.stellarAddress}`, sessions: [] }
+            : null,
+        ),
+    );
   });
 
   async function tokenFor(address: string): Promise<string> {
@@ -183,7 +193,14 @@ describe("PUT /api/jobs/:id/assign", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Job is already assigned to a freelancer");
-    expect(db.user.findUnique).not.toHaveBeenCalled();
+    // The auth lookup is expected; the handler must not go on to look the new
+    // freelancer up.
+    expect(
+      db.user.findUnique.mock.calls.some(
+        ([args]) =>
+          (args as { where?: { stellarAddress?: string } }).where?.stellarAddress === FREELANCER,
+      ),
+    ).toBe(false);
     expect(db.job.update).not.toHaveBeenCalled();
   });
 
@@ -208,7 +225,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Client cannot be assigned as freelancer to their own job");
-    expect(db.user.findUnique).not.toHaveBeenCalled();
+    // Only the auth lookup runs; the handler rejects before resolving a profile.
+    expect(db.user.findUnique).toHaveBeenCalledTimes(1);
     expect(db.job.update).not.toHaveBeenCalled();
   });
 
@@ -219,7 +237,10 @@ describe("PUT /api/jobs/:id/assign", () => {
       client: { stellarAddress: CLIENT },
       freelancerId: null,
     });
-    db.user.findUnique.mockResolvedValue(null);
+    db.user.findUnique.mockImplementation(
+      ({ select }: { select?: { sessions?: unknown } }) =>
+        Promise.resolve(select?.sessions ? { id: "auth_client", sessions: [] } : null),
+    );
     const token = await tokenFor(CLIENT);
 
     const res = await fetch(`${baseUrl}/api/jobs/job_1/assign`, {
@@ -244,10 +265,14 @@ describe("PUT /api/jobs/:id/assign", () => {
       client: { stellarAddress: CLIENT },
       freelancerId: null,
     });
-    db.user.findUnique.mockResolvedValue({
-      id: "freelancer_user_id",
-      stellarAddress: FREELANCER,
-    });
+    db.user.findUnique.mockImplementation(
+      ({ select }: { select?: { sessions?: unknown } }) =>
+        Promise.resolve(
+          select?.sessions
+            ? { id: "auth_client", sessions: [] }
+            : { id: "freelancer_user_id", stellarAddress: FREELANCER },
+        ),
+    );
     db.job.update.mockResolvedValue({
       id: "job_1",
       clientId: "client_user_id",

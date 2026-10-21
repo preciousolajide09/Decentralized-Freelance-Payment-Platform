@@ -39,10 +39,11 @@ const builtTxs = vi.hoisted(() => [] as unknown[]);
 
 const h = vi.hoisted(() => ({
   job: { update: vi.fn(), findUnique: vi.fn() },
+  user: { findUnique: vi.fn() },
   buildCreateArgs: vi.fn(),
 }));
 
-vi.mock("../db", () => ({ prisma: { job: h.job } }));
+vi.mock("../db", () => ({ prisma: { job: h.job, user: h.user } }));
 
 vi.mock("../lib/escrowArgs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/escrowArgs")>();
@@ -117,7 +118,10 @@ beforeEach(() => {
   builtTxs.length = 0;
   h.job.update.mockReset();
   h.job.findUnique.mockReset();
+  h.user.findUnique.mockReset();
   h.buildCreateArgs.mockReset();
+  // `requireAuth` loads the caller's current session before the request handler.
+  h.user.findUnique.mockResolvedValue({ id: "auth_user", sessions: [] });
 });
 
 /** A bearer token the `requireAuth` middleware accepts for `address`. */

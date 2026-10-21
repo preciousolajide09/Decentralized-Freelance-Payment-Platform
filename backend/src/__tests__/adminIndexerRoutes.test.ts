@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   delete: vi.fn(),
   restore: vi.fn(),
   dispatch: vi.fn(),
+  userFindUnique: vi.fn(),
 }));
 
 vi.mock("../config", () => ({
@@ -27,6 +28,8 @@ vi.mock("../db", () => ({
       findMany: h.findMany,
       delete: h.delete,
     },
+    // `requireAuth` loads the caller's current session before the admin guard.
+    user: { findUnique: h.userFindUnique },
   },
 }));
 
@@ -65,6 +68,8 @@ beforeEach(() => {
   h.delete.mockReset();
   h.restore.mockReset();
   h.dispatch.mockReset();
+  h.userFindUnique.mockReset();
+  h.userFindUnique.mockResolvedValue({ id: "auth_user", sessions: [] });
 });
 
 async function tokenFor(address: string): Promise<string> {

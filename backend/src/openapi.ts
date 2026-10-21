@@ -267,6 +267,21 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "post",
+  path: "/api/users/logout",
+  tags: ["Users"],
+  summary: "Revoke the current session",
+  description:
+    "Increments the user's session token version, invalidating every token issued before this call.",
+  security: auth,
+  responses: {
+    200: json(z.object({ message: z.string() }), "The session was revoked"),
+    401: errors[401],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
   method: "put",
   path: "/api/users/me",
   tags: ["Users"],
@@ -422,6 +437,23 @@ registry.registerPath({
     201: json(job, "The created job"),
     400: errors[400],
     401: errors[401],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/jobs/by-escrow/{escrowId}",
+  tags: ["Jobs"],
+  summary: "Get a job by its on-chain escrow id",
+  description:
+    "Looks up the off-chain job whose `escrowId` matches, without paging through the job list.",
+  request: {
+    params: z.object({ escrowId: z.string().describe("On-chain escrow id (u64 as a decimal string)") }),
+  },
+  responses: {
+    200: json(job, "The job, with its milestones, client and freelancer"),
+    400: errors[400],
     404: errors[404],
   },
 });

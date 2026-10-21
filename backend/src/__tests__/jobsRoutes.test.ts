@@ -76,7 +76,11 @@ beforeEach(() => {
     fn.mockReset();
   }
   h.job.findMany.mockResolvedValue([]);
-  h.user.findUnique.mockResolvedValue({ id: "user_client" });
+  // `requireAuth` asks for the caller's session; the save/unsave handlers ask
+  // for the caller's row. Distinguish the two by the `select` shape.
+  h.user.findUnique.mockImplementation(({ select }: { select?: { sessions?: unknown } }) =>
+    Promise.resolve(select?.sessions ? { id: "user_client", sessions: [] } : { id: "user_client" }),
+  );
   h.job.findUnique.mockResolvedValue({ id: "job_1" });
 });
 
@@ -253,7 +257,11 @@ describe("POST /api/jobs/:id/save", () => {
   });
 
   it("404s an authenticated address with no user record", async () => {
-    h.user.findUnique.mockResolvedValue(null);
+    // Authentication still succeeds (the token is valid); it is the save handler
+    // that has no row to key the bookmark on.
+    h.user.findUnique.mockImplementation(({ select }: { select?: { sessions?: unknown } }) =>
+      Promise.resolve(select?.sessions ? { id: "user_client", sessions: [] } : null),
+    );
 
     const res = await sendWithToken("POST", "/job_1/save", CLIENT);
 

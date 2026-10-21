@@ -142,8 +142,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     h.user.findUnique.mockImplementation(({ where }: { where: { stellarAddress: string } }) =>
       Promise.resolve(
         where.stellarAddress === RATER
-          ? { id: "user_client", stellarAddress: RATER }
-          : { id: "user_fl", stellarAddress: RATEE },
+          ? { id: "user_client", stellarAddress: RATER, sessions: [] }
+          : { id: "user_fl", stellarAddress: RATEE, sessions: [] },
       ),
     );
   });

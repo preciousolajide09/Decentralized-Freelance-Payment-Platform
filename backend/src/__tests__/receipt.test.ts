@@ -27,6 +27,7 @@ function job(overrides: Partial<ReceiptJob> = {}): ReceiptJob {
         status: "RELEASED",
         deadline: new Date("2026-02-01T00:00:00.000Z"),
         releasedAt: new Date("2026-02-02T12:00:00.000Z"),
+        releasedAmount: "1.5",
       },
       {
         index: 1,
@@ -35,6 +36,7 @@ function job(overrides: Partial<ReceiptJob> = {}): ReceiptJob {
         status: "PENDING",
         deadline: new Date("2026-03-01T00:00:00.000Z"),
         releasedAt: null,
+        releasedAmount: "0",
       },
     ],
     ...overrides,
@@ -97,8 +99,8 @@ describe("buildEscrowReceipt", () => {
       job({
         totalAmount: "0.3",
         milestones: [
-          { index: 0, description: null, amount: "0.1", status: "RELEASED", deadline: null, releasedAt: new Date() },
-          { index: 1, description: null, amount: "0.2", status: "RELEASED", deadline: null, releasedAt: new Date() },
+          { index: 0, description: null, amount: "0.1", status: "RELEASED", deadline: null, releasedAt: new Date(), releasedAmount: "0.1" },
+          { index: 1, description: null, amount: "0.2", status: "RELEASED", deadline: null, releasedAt: new Date(), releasedAmount: "0.2" },
         ],
       }),
       [],
@@ -111,7 +113,7 @@ describe("buildEscrowReceipt", () => {
   it("shows nothing released on an escrow whose milestones are all pending", () => {
     const receipt = buildEscrowReceipt(
       7n,
-      job({ milestones: [{ index: 0, description: null, amount: "2.5", status: "PENDING", deadline: null, releasedAt: null }] }),
+      job({ milestones: [{ index: 0, description: null, amount: "2.5", status: "PENDING", deadline: null, releasedAt: null, releasedAmount: "0" }] }),
       [],
       GENERATED_AT,
     );

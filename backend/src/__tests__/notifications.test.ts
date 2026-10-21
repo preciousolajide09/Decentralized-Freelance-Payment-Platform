@@ -32,10 +32,13 @@ vi.mock("../db", () => {
       user: {
         findUnique: vi.fn(async ({ where }: { where: { stellarAddress?: string; id?: string } }) => {
           if (where.stellarAddress) {
-            return fakeUsers.find((u) => u.stellarAddress === where.stellarAddress) ?? null;
+            const user = fakeUsers.find((u) => u.stellarAddress === where.stellarAddress);
+            // `requireAuth` reads the current session alongside the user row.
+            return user ? { ...user, sessions: [] } : null;
           }
           if (where.id) {
-            return fakeUsers.find((u) => u.id === where.id) ?? null;
+            const user = fakeUsers.find((u) => u.id === where.id);
+            return user ? { ...user, sessions: [] } : null;
           }
           return null;
         }),

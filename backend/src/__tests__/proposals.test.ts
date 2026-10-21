@@ -78,6 +78,17 @@ beforeEach(() => {
   h.proposal.findMany.mockReset();
   h.proposal.create.mockReset();
   h.proposal.updateMany.mockReset();
+  // `requireAuth` loads the caller's current session before the handler runs.
+  // The assign route also looks a freelancer up by address, without a session
+  // select, so keep that lookup separate.
+  h.user.findUnique.mockImplementation(
+    ({ where, select }: { where: { stellarAddress: string }; select?: { sessions?: unknown } }) =>
+      Promise.resolve(
+        select?.sessions
+          ? { id: `auth_${where.stellarAddress}`, sessions: [] }
+          : { id: `user_${where.stellarAddress}`, stellarAddress: where.stellarAddress },
+      ),
+  );
 });
 
 describe("Job Proposals API (Issue #63)", () => {
@@ -268,10 +279,14 @@ describe("Job Proposals API (Issue #63)", () => {
         status: "CREATED",
         client: { stellarAddress: CLIENT },
       });
-      h.user.findUnique.mockResolvedValue({
-        id: "freelancer_user_id",
-        stellarAddress: FREELANCER,
-      });
+      h.user.findUnique.mockImplementation(
+        ({ where, select }: { where: { stellarAddress: string }; select?: { sessions?: unknown } }) =>
+          Promise.resolve(
+            select?.sessions
+              ? { id: `auth_${where.stellarAddress}`, sessions: [] }
+              : { id: "freelancer_user_id", stellarAddress: FREELANCER },
+          ),
+      );
       h.job.update.mockResolvedValue({
         id: "job_1",
         freelancerId: "freelancer_user_id",
