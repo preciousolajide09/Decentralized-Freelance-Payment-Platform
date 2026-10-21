@@ -141,6 +141,8 @@ export default function JobDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  // Cache for the off-chain job ID resolved from escrow ID to avoid redundant scans
+  const [cachedJobId, setCachedJobId] = useState<string | null>(null);
 
   const escrowId = id ? parseEscrowId(id) : null;
 
@@ -182,21 +184,25 @@ export default function JobDetail() {
         setDisputeDeadline(null);
       }
 
-      // Load off-chain job data and deliverables if available
-      try {
-        const jId = await findJobIdByEscrow(escrowId, data.client);
-        if (jId) {
-          setOffChainJobId(jId);
-          void loadJobDeliverables(jId);
+      // Load off-chain job data and deliverables if available (but only on the
+      // first load, not on every 5s poll; the job ID mapping is immutable).
+      if (!cachedJobId) {
+        try {
+          const jId = await findJobIdByEscrow(escrowId, data.client);
+          if (jId) {
+            setCachedJobId(jId);
+            setOffChainJobId(jId);
+            void loadJobDeliverables(jId);
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     } catch (e) {
       // Keep the last good view: one failed poll must not blank the page.
       setReadFailure(asReadError(e));
     }
-  }, [escrowId, getEscrow, getDisputeDeadline, hasPendingWrite, loadJobDeliverables]);
+  }, [escrowId, getEscrow, getDisputeDeadline, hasPendingWrite, loadJobDeliverables, cachedJobId]);
 
   useEffect(() => {
     void refresh();
@@ -212,11 +218,18 @@ export default function JobDetail() {
       setJobLookupDone(false);
       return;
     }
+    // Use cached job ID if available to avoid redundant job list scans
+    if (cachedJobId) {
+      setJobId(cachedJobId);
+      setJobLookupDone(true);
+      return;
+    }
     let cancelled = false;
     setJobLookupDone(false);
     void findJobIdByEscrow(escrowId, publicKey)
       .then((id) => {
         if (cancelled) return;
+        setCachedJobId(id);
         setJobId(id);
         setJobLookupDone(true);
       })
@@ -228,7 +241,7 @@ export default function JobDetail() {
     return () => {
       cancelled = true;
     };
-  }, [escrowId, publicKey]);
+  }, [escrowId, publicKey, cachedJobId]);
 
   // Tick the countdown while a dispute is live, so "refundable in 2d 3h" is
   // accurate to the second between the 5s escrow polls.
@@ -298,15 +311,20 @@ export default function JobDetail() {
   async function saveComment(text: string, ratee: string) {
     if (escrowId === null || !publicKey) return;
     try {
-      const jobId = await findJobIdByEscrow(escrowId, publicKey);
-      if (!jobId) {
+      // Use cached job ID if available; otherwise resolve it
+      let jobIdToUse = cachedJobId;
+      if (!jobIdToUse) {
+        jobIdToUse = await findJobIdByEscrow(escrowId, publicKey);
+        if (jobIdToUse) setCachedJobId(jobIdToUse);
+      }
+      if (!jobIdToUse) {
         setCommentNote(
           "Rating submitted. The comment was not saved — this job has no off-chain record.",
         );
         return;
       }
       const token = await authenticate(publicKey, signMessage);
-      await recordRating({ jobId, rateeAddress: ratee, score, comment: text }, token);
+      await recordRating({ jobId: jobIdToUse, rateeAddress: ratee, score, comment: text }, token);
     } catch (err) {
       setCommentNote(
         `Rating submitted, but the comment was not saved: ${
@@ -363,9 +381,10 @@ export default function JobDetail() {
         reader.readAsDataURL(selectedFile);
       });
 
-      let targetJobId = offChainJobId;
+      let targetJobId = offChainJobId || cachedJobId;
       if (!targetJobId && escrowId !== null) {
         targetJobId = await findJobIdByEscrow(escrowId, publicKey);
+        if (targetJobId) setCachedJobId(targetJobId);
       }
       if (!targetJobId) {
         throw new Error("Could not find matching job record to attach deliverable");
@@ -413,15 +432,20 @@ export default function JobDetail() {
   async function saveDispute(escrow: bigint, text: string, disputeId: bigint) {
     if (!publicKey) return;
     try {
-      const jobId = await findJobIdByEscrow(escrow, publicKey);
-      if (!jobId) {
+      // Use cached job ID if available; otherwise resolve it
+      let jobIdToUse = cachedJobId;
+      if (!jobIdToUse) {
+        jobIdToUse = await findJobIdByEscrow(escrow, publicKey);
+        if (jobIdToUse) setCachedJobId(jobIdToUse);
+      }
+      if (!jobIdToUse) {
         setDisputeNote(
           "The dispute is on-chain. This job has no off-chain record, so the reason was not stored.",
         );
         return;
       }
       const token = await authenticate(publicKey, signMessage);
-      const { dispute } = await createDispute({ jobId, reason: text }, token);
+      const { dispute } = await createDispute({ jobId: jobIdToUse, reason: text }, token);
       await linkDisputeId(dispute.id, disputeId, token);
     } catch (err) {
       setDisputeNote(
