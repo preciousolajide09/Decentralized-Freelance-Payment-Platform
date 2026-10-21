@@ -82,6 +82,11 @@ function toAssetTotals(totals: Map<string, bigint>): AssetTotal[] {
  * "Released" spans both roles on purpose — it is what the address has paid out
  * as a client and been paid as a freelancer — so the role counts are reported
  * alongside it rather than pretending the number means one of the two.
+ *
+ * A milestone can be partially released via `releasedAmount`: the amount
+ * released so far. Only if `releasedAmount` equals `amount` (or status is
+ * `RELEASED` with no `releasedAmount` set) is it fully released. Otherwise,
+ * the released portion goes to released, and the remainder to locked (issue #175).
  */
 export function summarizeActivity({
   asClient,
@@ -106,10 +111,21 @@ export function summarizeActivity({
 
     for (const milestone of job.milestones ?? []) {
       const base = toBaseUnits(String(milestone.amount), decimals);
-      if (milestone.status === MILESTONE_RELEASED) {
-        addTo(released, symbol, base);
-      } else if (isOpen) {
-        addTo(locked, symbol, base);
+      
+      // Account for partial releases: releasedAmount tracks actual payments
+      const releasedAmountStr = milestone.releasedAmount
+        ? String(milestone.releasedAmount)
+        : milestone.status === MILESTONE_RELEASED
+          ? String(milestone.amount)
+          : "0";
+      const releasedBase = toBaseUnits(releasedAmountStr, decimals);
+      const lockedBase = base > releasedBase ? base - releasedBase : 0n;
+
+      if (releasedBase > 0n) {
+        addTo(released, symbol, releasedBase);
+      }
+      if (lockedBase > 0n && isOpen) {
+        addTo(locked, symbol, lockedBase);
       }
     }
   }
