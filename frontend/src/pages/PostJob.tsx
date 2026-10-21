@@ -39,10 +39,23 @@ import {
 /** Key used to persist a pending escrow result across page reloads. */
 const PENDING_ESCROW_KEY = "postjob_pending_escrow";
 
+/** Key used to persist the job draft form state. */
+const DRAFT_KEY = "postjob_draft";
+
 interface PendingEscrow {
   id: string;
   escrowId: number;
   hash: string;
+}
+
+interface JobDraft {
+  title: string;
+  description: string;
+  freelancer: string;
+  assetSymbol: string;
+  expiryDays: string;
+  selectedTags: string[];
+  rows: MilestoneRow[];
 }
 
 interface MilestoneRow {
@@ -66,18 +79,41 @@ export default function PostJob() {
   const { createAndFund, isPending, error } = useEscrow();
   const { publicKey, connect, connecting, signMessage } = useWallet();
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [freelancer, setFreelancer] = useState("");
-  // Default to the first asset this build actually has a SAC for; on the
-  // current testnet deployment that is XLM (USDC has no contract id yet).
-  const [assetSymbol, setAssetSymbol] = useState(
-    ASSETS.find((a) => a.contractId)?.symbol ?? ASSETS[0]?.symbol ?? "USDC",
-  );
-  const [expiryDays, setExpiryDays] = useState("30");
-  // Curated skill-tag slugs attached to the job (issue #70).
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [rows, setRows] = useState<MilestoneRow[]>([{ amount: "" }]);
+  // Load draft from localStorage or use defaults
+  const loadDraft = (): JobDraft => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      return raw ? (JSON.parse(raw) as JobDraft) : {
+        title: "",
+        description: "",
+        freelancer: "",
+        assetSymbol: ASSETS.find((a) => a.contractId)?.symbol ?? ASSETS[0]?.symbol ?? "USDC",
+        expiryDays: "30",
+        selectedTags: [],
+        rows: [{ amount: "" }],
+      };
+    } catch {
+      return {
+        title: "",
+        description: "",
+        freelancer: "",
+        assetSymbol: ASSETS.find((a) => a.contractId)?.symbol ?? ASSETS[0]?.symbol ?? "USDC",
+        expiryDays: "30",
+        selectedTags: [],
+        rows: [{ amount: "" }],
+      };
+    }
+  };
+
+  const draft = loadDraft();
+
+  const [title, setTitle] = useState(draft.title);
+  const [description, setDescription] = useState(draft.description);
+  const [freelancer, setFreelancer] = useState(draft.freelancer);
+  const [assetSymbol, setAssetSymbol] = useState(draft.assetSymbol);
+  const [expiryDays, setExpiryDays] = useState(draft.expiryDays);
+  const [selectedTags, setSelectedTags] = useState<string[]>(draft.selectedTags);
+  const [rows, setRows] = useState<MilestoneRow[]>(draft.rows);
   const [created, setCreated] = useState<CreateAndFundResult | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [pendingEscrow, setPendingEscrow] = useState<PendingEscrow | null>(() => {
@@ -95,6 +131,40 @@ export default function PostJob() {
   const [templateNote, setTemplateNote] = useState<string | null>(null);
 
   const asset = getAsset(assetSymbol);
+
+  // Save draft to localStorage whenever form state changes
+  useEffect(() => {
+    const currentDraft: JobDraft = {
+      title,
+      description,
+      freelancer,
+      assetSymbol,
+      expiryDays,
+      selectedTags,
+      rows,
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(currentDraft));
+  }, [title, description, freelancer, assetSymbol, expiryDays, selectedTags, rows]);
+
+  // Warn before unload if the draft has unsaved changes
+  useEffect(() => {
+    const hasDraftData =
+      title.trim() ||
+      description.trim() ||
+      freelancer.trim() ||
+      selectedTags.length > 0 ||
+      rows.some((r) => r.amount.trim());
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasDraftData) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [title, description, freelancer, selectedTags, rows]);
 
   // Templates belong to the connected wallet, so they change when it does.
   useEffect(() => {
@@ -204,6 +274,8 @@ export default function PostJob() {
       // Success — remove the recovery entry so the retry banner disappears.
       localStorage.removeItem(PENDING_ESCROW_KEY);
       setPendingEscrow(null);
+      // Clear the draft since the job was successfully created
+      localStorage.removeItem(DRAFT_KEY);
     } catch (e) {
       setRecordError(
         e instanceof Error ? e.message : "Could not save the job record",
